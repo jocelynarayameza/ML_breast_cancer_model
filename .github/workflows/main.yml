@@ -1,0 +1,63 @@
+name: Flujo MLOps CI/CD (Mínimo)
+
+on:
+  push:
+    branches:
+      - main # Ejecuta en cada push a la rama principal
+
+jobs:
+  build_test_and_push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      # 1. PASO: Build de la imagen Docker (Requisito 4: build)
+      - name: Construir la imagen Docker
+        id: build-image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false # Solo construir para prueba inicial
+          tags: ${{ secrets.DOCKER_USERNAME }}/evaluacion-mlops:latest
+          load: true # Cargar la imagen al contexto de acciones para las pruebas
+          
+      # 2. PASO: Ejecutar la prueba de endpoint (Requisito 4: test de endpoints)
+      - name: Prueba de Endpoint (Test Mínimo)
+        run: |
+          # Levantar el contenedor en segundo plano. Asumimos puerto 5000.
+          docker run -d --name mlops-test -p 5000:5000 ${{ secrets.DOCKER_USERNAME }}/evaluacion-mlops:latest
+          
+          # Esperar unos segundos a que la API se inicialice
+          sleep 10
+          
+          # Datos de prueba para el endpoint (ejemplo con valores aleatorios)
+          TEST_DATA='{"mean radius":14.0,"mean texture":18.0,"mean perimeter":90.0,"mean area":600.0,"mean smoothness":0.1,"mean compactness":0.1,"mean concavity":0.08,"mean concave points":0.04,"mean symmetry":0.2,"mean fractal dimension":0.06}'
+          
+          # Enviar la solicitud POST y validar la respuesta
+          # Buscamos que el JSON de respuesta contenga "prediction"
+          RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d "$TEST_DATA" http://localhost:5000/predict)
+          
+          echo "Respuesta del API: $RESPONSE"
+          
+          if echo "$RESPONSE" | grep -q "prediction"; then
+            echo "✅ Prueba de endpoint exitosa: Se recibió la clave 'prediction'."
+          else
+            echo "❌ Fallo en la prueba de endpoint: No se encontró la clave 'prediction' en la respuesta."
+            exit 1
+          fi
+
+      # 3. PASO: Login en Docker Hub
+      - name: Login en Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          
+      # 4. PASO: Push de la imagen (Requisito 4: push automatizado)
+      - name: Empujar la imagen a Docker Hub
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/evaluacion-mlops:latest
